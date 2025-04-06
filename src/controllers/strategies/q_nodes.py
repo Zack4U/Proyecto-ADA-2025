@@ -145,10 +145,16 @@ class QNodes(SIA):
 
         vertices = list(presente + futuro)
         self.vertices = set(presente + futuro)
-        mip = self.algorithm(vertices)
+        # Llamar a algorithm
+        resultado = self.algorithm(vertices)
 
-        fmt_mip = fmt_biparte_q(list(mip), self.nodes_complement(mip))
-        perdida_mip, dist_marginal_mip = self.memoria_particiones[mip]
+        # Verificar si algorithm devolvió una instancia de Solution
+        if isinstance(resultado, Solution):
+            return resultado
+
+        # Si no, continuar con el flujo normal
+        fmt_mip = fmt_biparte_q(list(resultado), self.nodes_complement(resultado))
+        perdida_mip, dist_marginal_mip = self.memoria_particiones[resultado]
 
         return Solution(
             estrategia=QNODES_LABEL,
@@ -273,7 +279,18 @@ class QNodes(SIA):
             omegas_ciclo.append(par_candidato)
 
             vertices_fase = omegas_ciclo
-            ...
+            
+            # Evaluar pérdida de la partición candidata inmediatamente
+            if emd_particion_candidata == 0:
+                self.logger.info("Pérdida cero encontrada. Terminando el proceso.")
+                return Solution(
+                    estrategia=QNODES_LABEL,
+                    perdida=emd_particion_candidata,
+                    distribucion_subsistema=self.sia_dists_marginales,
+                    distribucion_particion=dist_particion_candidata,
+                    tiempo_total=time.time() - self.sia_tiempo_inicio,
+                    particion=fmt_biparte_q(list(par_candidato), self.nodes_complement(par_candidato)),
+                )
 
         return min(
             self.memoria_particiones, key=lambda k: self.memoria_particiones[k][0]
@@ -317,6 +334,15 @@ class QNodes(SIA):
             )
             Esto lo hice así para hacer almacenamiento externo de la emd individual y su distribución marginal en las particiones candidatas.
         """
+         # Memoización para evitar cálculos repetidos
+        delta_key = tuple(deltas) if isinstance(deltas, list) else deltas
+        omega_key = tuple(tuple(o) if isinstance(o, list) else o for o in omegas)
+        combined_key = (delta_key, omega_key)
+
+        # Verificar si ya se calculó la combinación
+        if combined_key in self.memoria_omega:
+            return self.memoria_omega[combined_key]
+    
         emd_delta = INFTY_NEG
         temporal = [[], []]
 
@@ -363,6 +389,10 @@ class QNodes(SIA):
         )
         vector_union_marginal = particion_union.distribucion_marginal()
         emd_union = emd_efecto(vector_union_marginal, self.sia_dists_marginales)
+        
+        # Guardar en memoria
+        self.memoria_omega[combined_key] = (emd_union, emd_delta, vector_delta_marginal)
+        return emd_union, emd_delta, vector_delta_marginal
 
         return emd_union, emd_delta, vector_delta_marginal
 
