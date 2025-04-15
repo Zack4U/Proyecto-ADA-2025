@@ -2,7 +2,7 @@ from src.models.base.application import aplicacion
 
 from src.main import iniciar
 from src.main import matriz_generator
-# from src.alt import iniciar
+from src.main import iniciar_lote
 
 
 def main():
@@ -11,7 +11,8 @@ def main():
     aplicacion.profiler_habilitado = True
     aplicacion.pagina_sample_network = "A"
 
-    iniciar()
+    #iniciar()
+    iniciar_lote()
     #matriz_generator()
 
 
