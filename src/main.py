@@ -1,21 +1,24 @@
 from src.controllers.manager import Manager
 from src.controllers.strategies.q_nodes import QNodes
+from src.controllers.strategies.geometric import GeometricSIA
+from src.controllers.strategies.geometric_p import GeometricSIAP
+from src.controllers.strategies.phi import Phi
 import numpy as np
 import pandas as pd
 
 
 def iniciar():
     """Punto de entrada principal"""
-                    # ABCDEFGHIJKLMNOPQRSTUVWXY #
-    estado_inicial = "10000000000000000000"
-    condiciones =    "11111111111111111111"
-    alcance =        "01111110011111111111"
-    mecanismo =      "01111111111111111111"
+                    # 123456789012345678901234567890 #
+    estado_inicial = "0000000000"
+    condiciones =    "1111111111"
+    alcance =        "1111111111"
+    mecanismo =      "1111111111"
 
     gestor_sistema = Manager(estado_inicial)
 
     ### Ejemplo de solución mediante módulo de fuerza bruta ###
-    analizador_fb = QNodes(gestor_sistema)
+    analizador_fb = GeometricSIAP(gestor_sistema)
     sia_uno = analizador_fb.aplicar_estrategia(
         condiciones,
         alcance,
@@ -28,7 +31,6 @@ def matriz_generator():
     estado_inicial = "10000000000000000000"
     gestor_sistema = Manager(estado_inicial)
     gestor_sistema.generar_red(24)
-    
     
 def iniciar_lote():
     
