@@ -151,7 +151,7 @@ class GeometricSIA(SIA):
             
         print(f"Tabla de costos guardada en {file_path}")
     
-    def identificar_biparticiones_candidatas(self):
+    def identificar_biparticiones_candidatas3(self):
         if not self.tabla_transiciones:
             return []
 
@@ -268,6 +268,10 @@ class GeometricSIA(SIA):
                             grupo2.append(otra_var)
                         else:
                             grupo1.append(otra_var)
+                            
+                    # Ordenar grupo
+                    grupo1.sort()
+                    grupo2.sort()
                     # Mecanismos
                     bits_ini = format(estado_inicial, f'0{num_bits}b')
                     bits_e1 = format(e1, f'0{num_bits}b')
@@ -305,7 +309,195 @@ class GeometricSIA(SIA):
 
         print(f"Se encontraron {len(candidatas_unicas)} biparticiones candidatas.")
         return candidatas_unicas
-       
+          
+    def identificar_biparticiones_candidatas(self):
+        if not self.tabla_transiciones or not self.sia_subsistema or self.sia_subsistema.estado_inicial is None:
+            print("Error: tabla_transiciones o sia_subsistema.estado_inicial no están disponibles.")
+            return []
+
+        # Determinar número de variables futuras y presentes
+        try:
+            first_future_var_key = next(iter(self.tabla_transiciones))
+            if not self.tabla_transiciones[first_future_var_key].size > 0: # Check if array is not empty
+                 print("Error: El array de costos para la primera variable futura está vacío.")
+                 return []
+        except StopIteration:
+            print("Error: tabla_transiciones está vacía.")
+            return []
+            
+        num_future_vars = len(self.tabla_transiciones)
+        num_states_present = len(self.tabla_transiciones[first_future_var_key])
+        
+        if num_states_present == 0:
+            print("Error: num_states_present es 0, no se pueden determinar num_present_vars.")
+            return []
+        num_present_vars = (num_states_present - 1).bit_length()
+        if num_states_present == 1 and num_present_vars == 0: # Special case for single state (0 variables present)
+             num_present_vars = 0 # (1-1).bit_length() is 0. If num_states_present is 1, means 2^0 states.
+
+        estado_inicial_int = self.bits_to_int(self.sia_subsistema.estado_inicial)
+        
+        # Máscara para operaciones bitwise NOT para mantenerse dentro de num_present_vars
+        mask_present_state = (1 << num_present_vars) - 1 if num_present_vars > 0 else 0
+        complemento_inicial_present = estado_inicial_int ^ mask_present_state
+
+        candidatas_lista = []
+        
+        # Iterar sobre cada variable FUTURA como ancla para fut_grupo1
+        for anchor_future_var_idx in range(num_future_vars):
+            if anchor_future_var_idx not in self.tabla_transiciones:
+                print(f"Advertencia: No hay costos para la variable futura {anchor_future_var_idx}")
+                continue
+            
+            costos_anchor_fut_var = self.tabla_transiciones[anchor_future_var_idx]
+
+            # Encontrar el costo mínimo excluyendo la transición a estado_inicial_int
+            valid_indices_for_min = [j for j in range(num_states_present) if j != estado_inicial_int]
+            
+            if not valid_indices_for_min:
+                # Esto solo ocurriría si num_states_present == 1 y estado_inicial_int es ese único estado.
+                # O si num_states_present == 0.
+                continue 
+            
+            costs_for_min_search = costos_anchor_fut_var[valid_indices_for_min]
+            if costs_for_min_search.size == 0:
+                continue # No hay otros estados a los que transitar
+
+            min_costo_val = np.min(costs_for_min_search)
+
+            # Encontrar todos los estados presentes (target_present_states_min_cost) que resultan en este min_costo_val
+            target_present_states_min_cost = [
+                j for j in range(num_states_present)
+                if j != estado_inicial_int and np.isclose(costos_anchor_fut_var[j], min_costo_val)
+            ]
+
+            for current_e1_present_state in target_present_states_min_cost:
+                # current_e1_present_state es el estado presente objetivo para anchor_future_var_idx
+                # que da el min_costo_val.
+
+                # Opciones para el segundo estado presente (e2_pres) para comparar costos de otras variables futuras
+                e2_natural_present_state = current_e1_present_state ^ mask_present_state # Inverso bitwise de current_e1_present_state
+                e2_artificial_present_state = complemento_inicial_present
+
+                opciones_config_present_states = [
+                    ("natural", current_e1_present_state, e2_natural_present_state),
+                    ("artificial", current_e1_present_state, e2_artificial_present_state)
+                ]
+
+                mejor_opcion_discrepancia = float('inf')
+                mejor_opcion_fut_grupo1_list = None
+                mejor_opcion_fut_grupo2_list = None
+                mejor_tipo_opcion = None
+                # print(f"Evaluando variable futura {anchor_future_var_idx} con estado presente {current_e1_present_state} (min costo {min_costo_val:.8f})")
+                for tipo_opcion, e1_pres_ref, e2_pres_ref in opciones_config_present_states:
+                    # Formar grupos de variables FUTURAS
+                    # fut_grupo1 siempre contendrá anchor_future_var_idx
+                    # Se distribuyen las otras variables futuras basadas en sus costos hacia e1_pres_ref vs e2_pres_ref
+                    
+                    current_fut_grupo1_set = {anchor_future_var_idx}
+                    current_fut_grupo2_set = set()
+
+                    for other_fut_var_idx in range(num_future_vars):
+                        if other_fut_var_idx == anchor_future_var_idx:
+                            continue
+                        if other_fut_var_idx not in self.tabla_transiciones: continue
+
+                        costos_other_fut_var = self.tabla_transiciones[other_fut_var_idx]
+                        cost_at_e1_ref = costos_other_fut_var[e1_pres_ref]
+                        cost_at_e2_ref = costos_other_fut_var[e2_pres_ref]
+
+                        if cost_at_e1_ref <= cost_at_e2_ref: # Empate va a grupo1
+                            current_fut_grupo1_set.add(other_fut_var_idx)
+                        else:
+                            current_fut_grupo2_set.add(other_fut_var_idx)
+                    
+                    current_fut_grupo1_list = sorted(list(current_fut_grupo1_set))
+                    current_fut_grupo2_list = sorted(list(current_fut_grupo2_set))
+
+                    # Calcular discrepancia (según la lógica del usuario)
+                    # Ambas partes futuras deben ser no vacías para una bipartición válida
+                    if current_fut_grupo1_list and current_fut_grupo2_list:
+                        discrepancia = sum(self.tabla_transiciones[v_fut][e1_pres_ref] for v_fut in current_fut_grupo1_list) + \
+                                       sum(self.tabla_transiciones[v_fut][e2_pres_ref] for v_fut in current_fut_grupo2_list)
+                        
+                        if discrepancia < mejor_opcion_discrepancia:
+                            mejor_opcion_discrepancia = discrepancia
+                            mejor_opcion_fut_grupo1_list = current_fut_grupo1_list
+                            mejor_opcion_fut_grupo2_list = current_fut_grupo2_list
+                            mejor_tipo_opcion = tipo_opcion
+                            
+                    # print(f"  Opción {tipo_opcion}: Grupo1={current_fut_grupo1_list}, Grupo2={current_fut_grupo2_list}, Discrepancia={discrepancia:.8f}")
+                
+                # Si se encontró una mejor opción para los grupos futuros
+                if mejor_opcion_fut_grupo1_list and mejor_opcion_fut_grupo2_list:
+                    # Definir mecanismos PRESENTES basados *únicamente* en la transición primaria:
+                    # estado_inicial_int -> current_e1_present_state
+                    
+                    # Asegurarse de que num_present_vars sea correcto para formateo de bits
+                    # (ya calculado arriba, pero bueno verificar si el estado tiene bits)
+                    if num_present_vars == 0 and estado_inicial_int == 0 and current_e1_present_state == 0:
+                        # Caso especial: 0 variables presentes, 1 estado (0)
+                        mecanismos_A_present_list = []
+                        mecanismos_B_present_list = []
+                    elif num_present_vars > 0 :
+                        bits_ini_str = format(estado_inicial_int, f'0{num_present_vars}b')
+                        bits_current_e1_str = format(current_e1_present_state, f'0{num_present_vars}b')
+                        
+                        
+                            
+
+                        mecanismos_A_present_list = sorted([
+                            idx for idx in range(num_present_vars) if bits_ini_str[idx] == bits_current_e1_str[idx]
+                        ])
+                        if (tipo_opcion == "natural"):
+                            mecanismos_B_present_list = sorted([
+                                idx for idx in range(num_present_vars) if bits_ini_str[idx] != bits_current_e1_str[idx]
+                        ]) 
+                        else:
+                            bits_artificial_present_state = format(e2_artificial_present_state, f'0{num_present_vars}b')
+                            mecanismos_B_present_list = sorted([
+                                idx for idx in range(num_present_vars) if bits_ini_str[idx] == bits_artificial_present_state[idx]
+                            ])
+                    else: # num_present_vars es 0, pero los estados no son ambos 0 (situación anómala)
+                        mecanismos_A_present_list = []
+                        mecanismos_B_present_list = []
+
+                    # print(f"Mejor tipo de opción: {mejor_tipo_opcion} con discrepancia {mejor_opcion_discrepancia:.8f}")
+                    # print(f"  Mejor opción encontrada: Grupo1={mejor_opcion_fut_grupo1_list}, Grupo2={mejor_opcion_fut_grupo2_list}, ")
+                    # print(f"               Mecanismos:      A={mecanismos_A_present_list}, Mecanismos B={mecanismos_B_present_list}")
+                    
+                    candidatas_lista.append((
+                        mejor_opcion_fut_grupo1_list,
+                        mejor_opcion_fut_grupo2_list,
+                        mecanismos_A_present_list,
+                        mecanismos_B_present_list
+                    ))
+
+        # Eliminar duplicados y manejar simetría (A,B,a,b) es igual a (B,A,b,a) etc.
+        # Y (A,B,a,b) es igual a (A,B,b,a) si los mecanismos son solo conjuntos.
+        print(f"Se encontraron {len(candidatas_lista)} biparticiones candidatas antes de eliminar duplicados.")
+        
+        candidatas_unicas_final = []
+        claves_vistas_set = set()
+
+        for cand_futA, cand_futB, cand_presA, cand_presB in candidatas_lista:
+            # Crear representación canónica para la partición futura
+            key_fut_part = tuple(sorted((frozenset(cand_futA), frozenset(cand_futB))))
+            
+            # Crear representación canónica para la partición presente
+            key_pres_part = tuple(sorted((frozenset(cand_presA), frozenset(cand_presB))))
+            
+            combined_key = (key_fut_part, key_pres_part)
+
+            if combined_key not in claves_vistas_set:
+                # Guardar con el orden original que se encontró, o un orden canónico si se prefiere
+                # Aquí se guardan las listas originales (ya ordenadas internamente).
+                candidatas_unicas_final.append(list(map(list, (cand_futA, cand_futB, cand_presA, cand_presB))))
+                claves_vistas_set.add(combined_key)
+
+        print(f"Se encontraron {len(candidatas_unicas_final)} biparticiones candidatas únicas.")
+        return candidatas_unicas_final      
+          
     def evaluar_biparticiones(self, candidatos):
         mejor = None
         mejor_costo = float('inf')
@@ -331,7 +523,7 @@ class GeometricSIA(SIA):
         # Puedes devolver también la distribución marginal de la mejor partición si lo necesitas
         return mejor, mejor_dist, mejor_costo
     
-    def evaluar_coste_biparticion(self, futuro_A, futuro_B, presente_a, presente_b):
+    def evaluar_coste_biparticion(self, futuro_A, futuro_B, presente_a, presente_b):  
         if not hasattr(self.sia_subsistema, 'bipartir'):
             return float('inf')
         if len(self.tensores) == 1 and futuro_A and not futuro_B:
@@ -346,3 +538,4 @@ class GeometricSIA(SIA):
 
         costo = emd_efecto(dist, self.sia_dists_marginales)
         return costo, dist
+    

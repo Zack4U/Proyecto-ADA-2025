@@ -7,15 +7,15 @@ from src.controllers.strategies.phi import Phi
 def iniciar():
     """Punto de entrada principal"""
                     # 123456789012345678901234567890 #
-    estado_inicial = "000"
-    condiciones =    "111"
-    alcance =        "111"
-    mecanismo =      "111"
+    estado_inicial = "00000"
+    condiciones =    "11111"
+    alcance =        "11111"
+    mecanismo =      "11111"
 
     gestor_sistema = Manager(estado_inicial)
 
     ### Ejemplo de solución mediante módulo de fuerza bruta ###
-    analizador_fb = QNodes(gestor_sistema)
+    analizador_fb = GeometricSIA(gestor_sistema)
     sia_uno = analizador_fb.aplicar_estrategia(
         condiciones,
         alcance,
