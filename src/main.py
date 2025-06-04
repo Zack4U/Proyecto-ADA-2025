@@ -3,22 +3,19 @@ from src.controllers.strategies.q_nodes import QNodes
 from src.controllers.strategies.geometric import GeometricSIA
 from src.controllers.strategies.geometric_p import GeometricSIAP
 from src.controllers.strategies.phi import Phi
-import numpy as np
-import pandas as pd
-
 
 def iniciar():
     """Punto de entrada principal"""
                     # 123456789012345678901234567890 #
-    estado_inicial = "0000000000"
-    condiciones =    "1111111111"
-    alcance =        "1111111111"
-    mecanismo =      "1111111111"
+    estado_inicial = "000"
+    condiciones =    "111"
+    alcance =        "111"
+    mecanismo =      "111"
 
     gestor_sistema = Manager(estado_inicial)
 
     ### Ejemplo de solución mediante módulo de fuerza bruta ###
-    analizador_fb = GeometricSIAP(gestor_sistema)
+    analizador_fb = QNodes(gestor_sistema)
     sia_uno = analizador_fb.aplicar_estrategia(
         condiciones,
         alcance,

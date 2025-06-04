@@ -61,8 +61,8 @@ class GeometricSIA(SIA):
             distribucion_particion=mejor_dist,
             tiempo_total=time.time() - self.sia_tiempo_inicio,
             particion=fmt_biparticion(
-                [tuple(mejor[2]), tuple(mejor[0])],
-                [tuple(mejor[3]), tuple(mejor[1])],
+                [tuple(mejor[0]), tuple(mejor[2])],
+                [tuple(mejor[1]), tuple(mejor[3])],
             ),
         )
 
@@ -134,8 +134,8 @@ class GeometricSIA(SIA):
         datos = []
         filas = []
         for j in range(num_states):
-            # if j == estado_inicial:
-            #     continue
+            if j == estado_inicial:
+                continue
             fila = [self.tabla_transiciones[k][j] for k in self.tabla_transiciones]
             datos.append(fila)
             filas.append(f"{format(estado_inicial, f'0{num_bits}b')} > {format(j, f'0{num_bits}b')}")
@@ -159,153 +159,39 @@ class GeometricSIA(SIA):
         num_states = len(self.tabla_transiciones[first_key])
         num_bits = (num_states - 1).bit_length()
         estado_inicial = self.bits_to_int(self.sia_subsistema.estado_inicial)
+        # max_ceros = 0
 
         candidatas = []
-
-        for var in range(num_bits):
-            fila = self.tabla_transiciones[var]
-            min_costo = np.min(fila[1:])  # Excluye el estado inicial (asume que es 0)
-            estados_min = [j for j in range(num_states) if j != estado_inicial and fila[j] == min_costo]
-            
-            
-            for estado in estados_min:
-                grupo1 = [var]
-                grupo2 = []
-                estado_inverso = estado ^ ((1 << num_bits) - 1)
-                # Para cada otra variable, ver en qué transición tiene su menor costo
-                # print(f"Evaluando estado {estado} ({format(estado, f'0{num_bits}b')}) con mínimo costo {min_costo:.8f} en variable {var}")
-                for otra_var in range(num_bits):
-                    if otra_var == var:
-                        continue
-                    fila_otra = self.tabla_transiciones[otra_var]
-                    costo_estado = fila_otra[estado]
-                    costo_inverso = fila_otra[estado_inverso]
-                
-                    if costo_estado < costo_inverso:
-                        grupo1.append(otra_var)
-                    elif costo_inverso < costo_estado:
-                        grupo2.append(otra_var)
-                    else:
-                        grupo1.append(otra_var)
-
-                bits_ini = format(estado_inicial, f'0{num_bits}b')
-                bits_estado = format(estado, f'0{num_bits}b')
-                bits_inverso = format(estado_inverso, f'0{num_bits}b')
-                # print(f"Estado Inicial: {bits_ini}")
-                # print(f"Estado Final  : {bits_estado}")
-                # print(f"Estado Inverso: {bits_inverso}")
-
-                # Mecanismo grupo 1: TODAS las variables que NO cambian en la transición estado_inicial -> estado
-                mecanismo_grupo1 = [idx for idx in range(num_bits) if bits_ini[idx] == bits_estado[idx]]
-                # Mecanismo grupo 2: TODAS las variables que NO cambian en la transición estado_inicial -> estado_inverso
-                mecanismo_grupo2 = [idx for idx in range(num_bits) if bits_ini[idx] == bits_inverso[idx]]
-                
-                # print(f"Grupo 1: {grupo1} con mecanismos {mecanismo_grupo1}")
-                # print(f"Grupo 2: {grupo2} con mecanismos {mecanismo_grupo2}")
-
-                # Solo considerar biparticiones no triviales
-                if grupo1 and grupo2:
-                    candidatas.append((grupo1, grupo2, mecanismo_grupo1, mecanismo_grupo2))
-
-        # Elimina duplicados (considerando que (A,B) y (B,A) son iguales)
+        # Para cada estado destino (distinto al inicial)
+        for j in range(num_states):
+            if j == estado_inicial:
+                continue
+            # Variables con costo 0 en la transición actual
+            grupo = [k for k, fila in self.tabla_transiciones.items() if fila[j] == 0]
+            if not grupo or len(grupo) == num_bits:
+                continue  # Ignora grupos vacíos o el grupo total
+            # if len(grupo) < max_ceros:
+            #     continue
+            # max_ceros = len(grupo)
+            #print(f"Estado {j} ({format(j, f'0{num_bits}b')}): Grupo {grupo}")
+            complemento = [k for k in range(num_bits) if k not in grupo]
+            # Identifica mecanismos: variables que cambian entre estado_inicial y j
+            bits_ini = format(estado_inicial, f'0{num_bits}b')
+            bits_j = format(j, f'0{num_bits}b')
+            mecanismo_grupo = [idx for idx, (b1, b2) in enumerate(zip(bits_ini, bits_j)) if b1 != b2]
+            mecanismo_complemento = [idx for idx, (b1, b2) in enumerate(zip(bits_ini, bits_j)) if b1 == b2]
+            # Solo considerar biparticiones no triviales
+            if grupo and complemento:
+                candidatas.append((grupo, complemento, mecanismo_grupo, mecanismo_complemento))
+            # print(f"Estado {j} ({format(j, f'0{num_bits}b')}): Grupo {grupo}, Complemento {complemento}")
+        # Elimina duplicados
         candidatas_unicas = []
-        claves_vistas = set()
         for c in candidatas:
-            grupoA, grupoB, mecA, mecB = map(frozenset, c)
-            clave = (grupoA, grupoB, mecA, mecB)
-            clave_inv = (grupoB, grupoA, mecB, mecA)
-            if clave not in claves_vistas and clave_inv not in claves_vistas:
+            if (c[1], c[0]) not in candidatas_unicas and c not in candidatas_unicas:
                 candidatas_unicas.append(c)
-                claves_vistas.add(clave)
-                claves_vistas.add(clave_inv)
-                #print(f"Encontrada bipartición única: {c}")
-
         print(f"Se encontraron {len(candidatas_unicas)} biparticiones candidatas.")
         return candidatas_unicas
-       
-    def identificar_biparticiones_candidatas2(self):
-        if not self.tabla_transiciones:
-            return []
-
-        first_key = next(iter(self.tabla_transiciones))
-        num_states = len(self.tabla_transiciones[first_key])
-        num_bits = (num_states - 1).bit_length()
-        estado_inicial = self.bits_to_int(self.sia_subsistema.estado_inicial)
-        complemento_inicial = estado_inicial ^ ((1 << num_bits) - 1)
-
-        candidatas = []
-
-        for var in range(num_bits):
-            fila = self.tabla_transiciones[var]
-            min_costo = np.min(fila[1:])  # Excluye el estado inicial (asume que es 0)
-            estados_min = [j for j in range(num_states) if j != estado_inicial and fila[j] == min_costo]
-
-            for estado in estados_min:
-
-                estado_inverso = estado ^ ((1 << num_bits) - 1)
-
-                opciones = [
-                    ("natural", estado, estado_inverso),
-                    ("artificial", estado, complemento_inicial)
-                ]
-                
-                mejor_opcion = None
-                mejor_discrepancia = float('inf')
-                mejor_grupo1 = mejor_grupo2 = mejor_mec1 = mejor_mec2 = None
-
-                for tipo, e1, e2 in opciones:
-                    grupo1 = [var]
-                    grupo2 = []
-                    for otra_var in range(num_bits):
-                        if otra_var == var:
-                            continue
-                        fila_otra = self.tabla_transiciones[otra_var]
-                        costo_e1 = fila_otra[e1]
-                        costo_e2 = fila_otra[e2]
-                        if costo_e1 < costo_e2:
-                            grupo1.append(otra_var)
-                        elif costo_e2 < costo_e1:
-                            grupo2.append(otra_var)
-                        else:
-                            grupo1.append(otra_var)
-                    # Mecanismos
-                    bits_ini = format(estado_inicial, f'0{num_bits}b')
-                    bits_e1 = format(e1, f'0{num_bits}b')
-                    bits_e2 = format(e2, f'0{num_bits}b')
-                    mecanismo_grupo1 = [idx for idx in range(num_bits) if bits_ini[idx] == bits_e1[idx]]
-                    mecanismo_grupo2 = [idx for idx in range(num_bits) if bits_ini[idx] == bits_e2[idx]]
-
-                    if grupo1 and grupo2:
-                        # Discrepancia total: suma de mínimos costos de cada grupo
-                        discrepancia = sum(self.tabla_transiciones[v][e1] for v in grupo1) + \
-                                    sum(self.tabla_transiciones[v][e2] for v in grupo2)
-                        if discrepancia < mejor_discrepancia:
-                            mejor_discrepancia = discrepancia
-                            mejor_opcion = tipo
-                            mejor_grupo1 = grupo1.copy()
-                            mejor_grupo2 = grupo2.copy()
-                            mejor_mec1 = mecanismo_grupo1
-                            mejor_mec2 = mecanismo_grupo2
-                    
-                if mejor_grupo1 and mejor_grupo2:
-                    candidatas.append((mejor_grupo1, mejor_grupo2, mejor_mec1, mejor_mec2))
-
-        # Elimina duplicados (considerando que (A,B) y (B,A) son iguales)
-        print(f"Se encontraron {len(candidatas)} biparticiones candidatas antes de eliminar duplicados.")
-        candidatas_unicas = []
-        claves_vistas = set()
-        for c in candidatas:
-            grupoA, grupoB, mecA, mecB = map(frozenset, c)
-            clave = (grupoA, grupoB, mecA, mecB)
-            clave_inv = (grupoB, grupoA, mecB, mecA)
-            if clave not in claves_vistas and clave_inv not in claves_vistas:
-                candidatas_unicas.append(c)
-                claves_vistas.add(clave)
-                claves_vistas.add(clave_inv)
-
-        print(f"Se encontraron {len(candidatas_unicas)} biparticiones candidatas.")
-        return candidatas_unicas
-       
+        
     def evaluar_biparticiones(self, candidatos):
         mejor = None
         mejor_costo = float('inf')
