@@ -11,8 +11,8 @@ def main():
     aplicacion.profiler_habilitado = True
     aplicacion.pagina_sample_network = "A"
 
-    iniciar()
-    #iniciar_lote()
+    #iniciar()
+    iniciar_lote()
     #matriz_generator()
 
 

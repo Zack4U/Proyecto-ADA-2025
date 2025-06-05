@@ -61,7 +61,7 @@ def iniciar_lote():
     # 011111111111111  Presente
     
                     #  12345678901234567890 #
-    alcance         = "1111111110"
+    alcance         = "1101101101"
     
     
     num_nodos = len(estado_inicio)
@@ -74,7 +74,7 @@ def iniciar_lote():
     # Si el archivo ya existe, se actualizará con los nuevos datos
     # Se guardará en el directorio results/N#A/alcance/N#A.xlsx
     bits = len(estado_inicio)
-    nombre_sistema = f"N{num_nodos}{aplicacion.pagina_sample_network}"
+    nombre_sistema = f"N{num_nodos}{aplicacion.pagina_sample_network}_PAR"
     archivo_excel = f"results/{nombre_sistema}/{alcance}/{nombre_sistema}.xlsx"
     
     #Crear directorio si no existe
@@ -104,7 +104,7 @@ def iniciar_lote():
         i += 1
         print(i)
         print(f"{alcance=} {mecanismo=}")
-        analizador = GeometricSIA(config_sistema)
+        analizador = GeometricSIAP(config_sistema)
         sia_dos = analizador.aplicar_estrategia(condiciones, alcance, mecanismo)
         # print("Partición")
         # print(sia_dos.particion)
