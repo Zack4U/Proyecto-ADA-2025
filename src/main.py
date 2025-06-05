@@ -4,13 +4,19 @@ from src.controllers.strategies.geometric import GeometricSIA
 from src.controllers.strategies.geometric_p import GeometricSIAP
 from src.controllers.strategies.phi import Phi
 
+from src.models.base.application import aplicacion
+
+import numpy as np
+import pandas as pd
+import os
+
 def iniciar():
     """Punto de entrada principal"""
                     # 123456789012345678901234567890 #
-    estado_inicial = "00000"
-    condiciones =    "11111"
-    alcance =        "11111"
-    mecanismo =      "11111"
+    estado_inicial = "1000000000"
+    condiciones =    "1111111111"
+    alcance =        "1010101010"
+    mecanismo =      "0101010101"
 
     gestor_sistema = Manager(estado_inicial)
 
@@ -32,9 +38,9 @@ def matriz_generator():
 def iniciar_lote():
     
     # """Punto de entrada principal"""
-                     # ABCDEFGHIJKLMNOPQRST #
-    estado_inicio   = "100000000000000" # Estado inicial del sistema
-    condiciones     = "111111111111111"  # Sistema candidato
+                     # 12345678901234567890 #
+    estado_inicio   = "1000000000" 
+    condiciones     = "1111111111"
     
     # Para la red de 21 Nodos:
     # ABCDEFGHIJKLMNOPQRST #
@@ -54,8 +60,8 @@ def iniciar_lote():
     # 011111100111111  Futuro
     # 011111111111111  Presente
     
-                    #  ABCDEFGHIJKLMNOPQRSTU #
-    alcance         = "110110110110110" # Futuro
+                    #  12345678901234567890 #
+    alcance         = "1111111110"
     
     
     num_nodos = len(estado_inicio)
@@ -63,7 +69,19 @@ def iniciar_lote():
 
     config_sistema = Manager(estado_inicial=estado_inicio)
 
-    archivo_excel = "Datos_N15A.xlsx"
+    # Configuración del archivo Excel
+    # Si el archivo no existe, se creará uno nuevo
+    # Si el archivo ya existe, se actualizará con los nuevos datos
+    # Se guardará en el directorio results/N#A/alcance/N#A.xlsx
+    bits = len(estado_inicio)
+    nombre_sistema = f"N{num_nodos}{aplicacion.pagina_sample_network}"
+    archivo_excel = f"results/{nombre_sistema}/{alcance}/{nombre_sistema}.xlsx"
+    
+    #Crear directorio si no existe
+    directorio = os.path.dirname(archivo_excel)
+    if not os.path.exists(directorio):
+        os.makedirs(directorio)
+    
     col_particion = "Partición"
     col_perdida = "Pérdida"
     col_tiempo = "Tiempo ejecución"
@@ -86,19 +104,19 @@ def iniciar_lote():
         i += 1
         print(i)
         print(f"{alcance=} {mecanismo=}")
-        analizador_Q = QNodes(config_sistema)
-        sia_dos = analizador_Q.aplicar_estrategia(condiciones, alcance, mecanismo)
-        print("Partición")
-        print(sia_dos.particion)
-        print("Perdida: ")
-        print(sia_dos.perdida)
-        print("Tiempo de ejecución: ")
-        print(sia_dos.tiempo_ejecucion)
+        analizador = GeometricSIA(config_sistema)
+        sia_dos = analizador.aplicar_estrategia(condiciones, alcance, mecanismo)
+        # print("Partición")
+        # print(sia_dos.particion)
+        # print("Perdida: ")
+        # print(sia_dos.perdida)
+        # print("Tiempo de ejecución: ")
+        # print(sia_dos.tiempo_ejecucion)
 
         lineas = sia_dos.particion.split("\n")
 
         fila1 = pd.DataFrame(
-            [[lineas[0], sia_dos.perdida, sia_dos.tiempo_ejecucion]],
+            [[lineas[0], round(sia_dos.perdida, 4), sia_dos.tiempo_ejecucion]],
             columns=[col_particion, col_perdida, col_tiempo],
         )
         fila2 = pd.DataFrame(
