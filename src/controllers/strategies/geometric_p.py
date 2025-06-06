@@ -15,7 +15,8 @@ from src.constants.models import (GEOMETRIC_PARALLEL_LABEL, GEOMETRIC_PARALLEL_A
 from src.constants.base import (TYPE_TAG)
 
 
-MAX_VAR = -1
+MAX_VAR = -1                    # Número máximo de variables a considerar en la evaluación de biparticiones
+ANALYSIS_PERCENTAGE = 0.5       # Porcentaje de costo máximo para considerar una variable como candidata extra
 
 def hamming_distance(s1, s2):
     """Calcula la distancia de Hamming entre dos estados enteros."""
@@ -258,7 +259,7 @@ class GeometricSIAP(SIA):
                 candidatas_unicas.append(c)
                 claves_vistas.add(clave)
                 claves_vistas.add(clave_inv)
-        print(f"Se encontraron {len(candidatas_unicas)} biparticiones candidatas.")
+        # print(f"Se encontraron {len(candidatas_unicas)} biparticiones candidatas.")
         return candidatas_unicas
 
     def identificar_biparticiones_candidatas_extra(self, candidatos):
@@ -279,12 +280,13 @@ class GeometricSIAP(SIA):
         
         # Buscar variables con costo mínimo en el estado complementario
         costos_complementarios = [self.tabla_transiciones[var][estado_complementario] for var in self.sia_subsistema.indices_ncubos]
-
-        min_costo = min(costos_complementarios)
-        vars_min = [var for var, costo in zip(self.sia_subsistema.indices_ncubos, costos_complementarios) if costo == min_costo]
+        
+        max_costo = max(costos_complementarios)
+        umbral = ANALYSIS_PERCENTAGE * max_costo
+        vars_min = [var for var, costo in zip(self.sia_subsistema.indices_ncubos, costos_complementarios) if costo < umbral]
         # print(f"Variables con costo mínimo {min_costo:.8f} en estado complementario {estado_complementario} ({format(estado_complementario, f'0{num_bits}b')}): {vars_min}")
 
-        print(vars_min)
+        #print(vars_min)
 
         args_list = [
             (var, self.tabla_transiciones, num_bits, estado_inicial, estado_complementario, indices_ncubos, mecanismo)
@@ -297,7 +299,7 @@ class GeometricSIAP(SIA):
         for c in resultados:
             if c is not None:
                 candidatos.append(c)
-                print(f"Biparticion extra agregada {candidatos[-1]}") 
+                #print(f"Biparticion extra agregada {candidatos[-1]}") 
 
         # Elimina duplicados (considerando que (A,B) y (B,A) son iguales)
         candidatas_unicas = []
@@ -310,7 +312,7 @@ class GeometricSIAP(SIA):
                 candidatas_unicas.append(c)
                 claves_vistas.add(clave)
                 claves_vistas.add(clave_inv)
-        print(f"Se encontraron {len(candidatas_unicas)} biparticiones candidatas (incluyendo extra).")
+        #print(f"Se encontraron {len(candidatas_unicas)} biparticiones candidatas (incluyendo extra).")
         return candidatas_unicas
     
     def filtrar_candidatos_por_tamano(self, candidatos):
@@ -330,7 +332,7 @@ class GeometricSIAP(SIA):
             umbral = max_size
             
         filtrados = [c for c in candidatos if (len(c[0]) + len(c[2])) <= umbral]
-        print(f"Filtrando candidatos: tamaño mínimo {min_size}, máximo {max_size}, umbral {umbral}. Quedan {len(filtrados)} de {len(candidatos)}.")
+        # print(f"Filtrando candidatos: tamaño mínimo {min_size}, máximo {max_size}, umbral {umbral}. Quedan {len(filtrados)} de {len(candidatos)}.")
         return filtrados  
     
     def evaluar_biparticiones(self, candidatos):

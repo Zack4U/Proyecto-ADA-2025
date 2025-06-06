@@ -13,7 +13,8 @@ from src.middlewares.profile import profile
 from src.constants.models import (GEOMETRIC_LABEL, GEOMETRIC_ANALYSIS_TAG)
 from src.constants.base import (TYPE_TAG)
 
-MAX_VAR = -1
+MAX_VAR = -1                    # Número máximo de variables a considerar en la evaluación de biparticiones
+ANALYSIS_PERCENTAGE = 0.5       # Porcentaje de costo máximo para considerar una variable como candidata extra
 
 class GeometricSIA(SIA):
     def __init__(self, gestor):
@@ -258,11 +259,12 @@ class GeometricSIA(SIA):
         # Buscar variables con costo mínimo en el estado complementario
         costos_complementarios = [self.tabla_transiciones[var][estado_complementario] for var in self.sia_subsistema.indices_ncubos]
 
-        min_costo = min(costos_complementarios)
-        vars_min = [var for var, costo in zip(self.sia_subsistema.indices_ncubos, costos_complementarios) if costo == min_costo]
+        max_costo = max(costos_complementarios)
+        umbral = ANALYSIS_PERCENTAGE * max_costo
+        vars_min = [var for var, costo in zip(self.sia_subsistema.indices_ncubos, costos_complementarios) if costo < umbral]
         # print(f"Variables con costo mínimo {min_costo:.8f} en estado complementario {estado_complementario} ({format(estado_complementario, f'0{num_bits}b')}): {vars_min}")
 
-        print(vars_min)
+        # print(vars_min)
 
         for var in vars_min:
             grupo1 = [var]
@@ -284,12 +286,12 @@ class GeometricSIA(SIA):
             else:
                 candidatos.append((grupo1, grupo2, mecanismo_grupo1, mecanismo_grupo2))
                 
-            print(f"Biparticion extra agregada {candidatos[-1]}") 
+            # print(f"Biparticion extra agregada {candidatos[-1]}") 
             # print(f"Encontrada bipartición extra: {grupo1} | {grupo2} con mecanismos {mecanismo_grupo1} | {mecanismo_grupo2}")
             
         # Elimina duplicados (considerando que (A,B) y (B,A) son iguales)
         
-        print(f"Se encontraron {len(candidatos)} biparticiones candidatas (incluyendo extra).")
+        # print(f"Se encontraron {len(candidatos)} biparticiones candidatas (incluyendo extra).")
         return candidatos
       
     def filtrar_candidatos_por_tamano(self, candidatos):
