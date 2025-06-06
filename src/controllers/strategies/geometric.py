@@ -25,16 +25,16 @@ class GeometricSIA(SIA):
     # @profile(context={TYPE_TAG: GEOMETRIC_ANALYSIS_TAG})
     def aplicar_estrategia(self, condicion: str, alcance: str, mecanismo: str) -> Solution:
         #print("Iniciando SIA Geométrica...")
-        tiempo_inicio = time.time()
+        #tiempo_inicio = time.time()
         self.sia_preparar_subsistema(condicion, alcance, mecanismo)
         #print(f"Tiempo de preparación del subsistema: {time.time() - tiempo_inicio:.8f} segundos")
 
-        tiempo_inicio = time.time()
+        #tiempo_inicio = time.time()
         #print("Descomponiendo en tensores...")
         self.tensores = self.descomponer_en_tensores()
         #print(f"Tiempo de descomposición: {time.time() - tiempo_inicio:.8f} segundos")
 
-        tiempo_inicio = time.time()
+        #tiempo_inicio = time.time()
         #print("Calculando tabla de costos...")
         self.tabla_transiciones = self.calcular_tabla_costos()
         #print(f"Tiempo de cálculo de tabla de costos: {time.time() - tiempo_inicio:.8f} segundos")
@@ -44,14 +44,14 @@ class GeometricSIA(SIA):
         # self.guardar_tabla_costos_excel() 
         # print(f"Tiempo de guardado de tablas: {time.time() - tiempo_inicio:.8f} segundos")
         
-        tiempo_inicio = time.time()
+        #tiempo_inicio = time.time()
         #print("Identificando biparticiones candidatas...")
         candidatos = self.identificar_biparticiones_candidatas()
         candidatos = self.identificar_biparticiones_candidatas_extra(candidatos)
         candidatos = self.filtrar_candidatos_por_tamano(candidatos) 
         #print(f"Tiempo de identificación de candidatas: {time.time() - tiempo_inicio:.8f} segundos")
 
-        tiempo_inicio = time.time()
+        #tiempo_inicio = time.time()
         #print("Evaluando biparticiones...")
         mejor, mejor_dist, mejor_cost = self.evaluar_biparticiones(candidatos)
         #print(f"Tiempo de evaluación de biparticiones: {time.time() - tiempo_inicio:.8f} segundos")
@@ -174,11 +174,14 @@ class GeometricSIA(SIA):
         estado_inicial = self.bits_to_int(bits_fuente)
 
         candidatas = []
+        #print(f"Identificando biparticiones candidatas para {len(self.sia_subsistema.indices_ncubos)} variables y {num_states} estados...")
 
         for var in self.sia_subsistema.indices_ncubos:
             fila = self.tabla_transiciones[var]
-            min_costo = np.min(fila[1:])  # Excluye el estado inicial (asume que es 0)
+            min_costo = np.min([fila[j] for j in range(num_states) if j != estado_inicial])
             estados_min = [j for j in range(num_states) if j != estado_inicial and fila[j] == min_costo]
+            
+            #print(f"Variable {var} tiene mínimo costo {min_costo:.8f} en estados: {', '.join(format(e, f'0{num_bits}b') for e in estados_min)}")
             
             
             for estado in estados_min:
@@ -186,7 +189,7 @@ class GeometricSIA(SIA):
                 grupo2 = []
                 estado_inverso = estado ^ ((1 << num_bits) - 1)
                 # Para cada otra variable, ver en qué transición tiene su menor costo
-                # print(f"Evaluando estado {estado} ({format(estado, f'0{num_bits}b')}) con mínimo costo {min_costo:.8f} en variable {var}")
+                #print(f"Evaluando estado {estado} ({format(estado, f'0{num_bits}b')}) con mínimo costo {min_costo:.8f} en variable {var}")
                 for otra_var in self.sia_subsistema.indices_ncubos:
                     if otra_var == var:
                         continue
@@ -213,8 +216,8 @@ class GeometricSIA(SIA):
                 # Mecanismo grupo 2: TODAS las variables que NO cambian en la transición estado_inicial -> estado_inverso
                 mecanismo_grupo2 = [self.sia_subsistema.dims_ncubos[i] for i in range(num_bits) if bits_ini[i] == bits_inverso[i]]
                 
-                # print(f"Grupo 1: {grupo1} con mecanismos {mecanismo_grupo1}")
-                # print(f"Grupo 2: {grupo2} con mecanismos {mecanismo_grupo2}")
+                #print(f"Grupo 1: {grupo1} con mecanismos {mecanismo_grupo1}")
+                #print(f"Grupo 2: {grupo2} con mecanismos {mecanismo_grupo2}")
 
                 # Solo considerar biparticiones no triviales
                 if grupo1 and not grupo2:
@@ -238,7 +241,7 @@ class GeometricSIA(SIA):
                 claves_vistas.add(clave_inv)
                 #print(f"Encontrada bipartición única: {c}")
 
-        print(f"Se encontraron {len(candidatas_unicas)} biparticiones candidatas.")
+        #print(f"Se encontraron {len(candidatas_unicas)} biparticiones candidatas.")
         return candidatas_unicas
     
     def identificar_biparticiones_candidatas_extra(self, candidatos):
@@ -311,7 +314,7 @@ class GeometricSIA(SIA):
             umbral = max_size
             
         filtrados = [c for c in candidatos if (len(c[0]) + len(c[2])) <= umbral]
-        print(f"Filtrando candidatos: tamaño mínimo {min_size}, máximo {max_size}, umbral {umbral}. Quedan {len(filtrados)} de {len(candidatos)}.")
+        #print(f"Filtrando candidatos: tamaño mínimo {min_size}, máximo {max_size}, umbral {umbral}. Quedan {len(filtrados)} de {len(candidatos)}.")
         return filtrados  
       
     def evaluar_biparticiones(self, candidatos):

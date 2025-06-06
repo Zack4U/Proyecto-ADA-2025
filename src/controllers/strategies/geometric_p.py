@@ -41,7 +41,7 @@ def calcular_fila(args):
 def _biparticion_candidata_worker(args):
     var, tabla_transiciones, num_bits, num_states, estado_inicial, indices_ncubos, dims_ncubos = args
     fila = tabla_transiciones[var]
-    min_costo = np.min(fila[1:])  # Excluye el estado inicial (asume que es 0)
+    min_costo = np.min([fila[j] for j in range(num_states) if j != estado_inicial])
     estados_min = [j for j in range(num_states) if j != estado_inicial and fila[j] == min_costo]
     candidatas = []
     for estado in estados_min:
@@ -100,16 +100,16 @@ class GeometricSIAP(SIA):
     # @profile(context={TYPE_TAG: GEOMETRIC_PARALLEL_ANALYSIS_TAG})
     def aplicar_estrategia(self, condicion: str, alcance: str, mecanismo: str) -> Solution:
         #print("Iniciando SIA Geométrica...")
-        tiempo_inicio = time.time()
+        #tiempo_inicio = time.time()
         self.sia_preparar_subsistema(condicion, alcance, mecanismo)
         #print(f"Tiempo de preparación del subsistema: {time.time() - tiempo_inicio:.8f} segundos")
 
-        tiempo_inicio = time.time()
+        #tiempo_inicio = time.time()
         #print("Descomponiendo en tensores...")
         self.tensores = self.descomponer_en_tensores()
         #print(f"Tiempo de descomposición: {time.time() - tiempo_inicio:.8f} segundos")
 
-        tiempo_inicio = time.time()
+        #tiempo_inicio = time.time()
         #print("Calculando tabla de costos...")
         self.tabla_transiciones = self.calcular_tabla_costos()
         #print(f"Tiempo de cálculo de tabla de costos: {time.time() - tiempo_inicio:.8f} segundos")
@@ -119,7 +119,7 @@ class GeometricSIAP(SIA):
         # self.guardar_tabla_costos_excel() 
         # print(f"Tiempo de guardado de tablas: {time.time() - tiempo_inicio:.8f} segundos")
         
-        tiempo_inicio = time.time()
+        #tiempo_inicio = time.time()
         #print("Identificando biparticiones candidatas...")
         candidatos = self.identificar_biparticiones_candidatas()
         candidatos = self.identificar_biparticiones_candidatas_extra(candidatos)
@@ -127,7 +127,7 @@ class GeometricSIAP(SIA):
         #print(f"Tiempo de identificación de candidatas: {time.time() - tiempo_inicio:.8f} segundos")
 
 
-        tiempo_inicio = time.time()
+        #tiempo_inicio = time.time()
         #print("Evaluando biparticiones...")
         mejor, mejor_dist, mejor_cost = self.evaluar_biparticiones(candidatos)
         #print(f"Tiempo de evaluación de biparticiones: {time.time() - tiempo_inicio:.8f} segundos")
