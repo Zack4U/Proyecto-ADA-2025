@@ -6,3 +6,5 @@ pyinstrument
 pyttsx3
 colorama
 setuptools
+mpi4py
+numba

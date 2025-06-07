@@ -2,6 +2,8 @@ import time
 import numpy as np
 import pandas as pd
 import multiprocessing
+from numba import cuda, int32, float32
+import gc
 
 from src.models.base.sia import SIA
 from src.models.core.solution import Solution
@@ -16,27 +18,46 @@ from src.constants.base import (TYPE_TAG)
 
 
 MAX_VAR = -1                    # Número máximo de variables a considerar en la evaluación de biparticiones
-ANALYSIS_PERCENTAGE = 0.75       # Porcentaje de costo máximo para considerar una variable como candidata extra
+ANALYSIS_PERCENTAGE = 1.0       # Porcentaje de costo máximo para considerar una variable como candidata extra
 
 def hamming_distance(s1, s2):
     """Calcula la distancia de Hamming entre dos estados enteros."""
     return bin(s1 ^ s2).count('1')
 
-def calcular_fila(args):
-    var, tensor, num_states, num_bits, source_state, mecanismo = args
-    fila = np.zeros(num_states)
-    for d in range(1, num_bits + 1):
-        for j in range(num_states):
-            if bin(source_state ^ j).count('1') == d:
-                gamma = 2 ** -d
-                delta = abs(tensor[source_state] - tensor[j])
-                suma_intermedia = sum(
-                    fila[source_state ^ (1 << k)]
-                    for k in range(num_bits)
-                    if bin((source_state ^ (1 << k)) ^ j).count('1') == d - 1 and (source_state ^ (1 << k)) < num_states
-                )
-                fila[j] = gamma * (delta + suma_intermedia)
-    return (var, fila)
+@cuda.jit
+def calcular_costos_por_distancia_progresiva(tensor, source_state, fila, fila_prev, js, num_bits):
+    idx = cuda.grid(1)
+    if idx >= js.shape[0]:
+        return
+
+    j = js[idx]
+
+    # Distancia de Hamming entre j y source_state (fija para esta capa)
+    xor = source_state ^ j
+    dist = 0
+    while xor:
+        dist += xor & 1
+        xor >>= 1
+
+    gamma = 2.0 ** -dist
+    delta = abs(tensor[source_state] - tensor[j])
+
+    suma_intermedia = 0.0
+    for k in range(num_bits):
+        vecino = source_state ^ (1 << k)
+        if vecino >= fila_prev.shape[0]:
+            continue
+
+        xor2 = vecino ^ j
+        dist2 = 0
+        while xor2:
+            dist2 += xor2 & 1
+            xor2 >>= 1
+
+        if dist2 == dist - 1:
+            suma_intermedia += fila_prev[vecino]
+
+    fila[j] = gamma * (delta + suma_intermedia)
 
 def _biparticion_candidata_worker(args):
     var, tabla_transiciones, num_bits, num_states, estado_inicial, indices_ncubos, dims_ncubos = args
@@ -71,19 +92,6 @@ def _biparticion_candidata_worker(args):
             candidatas.append((grupo1, grupo2, mecanismo_grupo1, mecanismo_grupo2))
     return candidatas
 
-def _biparticion_extra_worker(args):
-    var, tabla_transiciones, num_bits, estado_inicial, estado_complementario, indices_ncubos, dims_ncubos = args
-    grupo1 = [var]
-    grupo2 = [v for v in indices_ncubos if v != var]
-    bits_ini = format(estado_inicial, f'0{num_bits}b')
-    bits_comp = format(estado_complementario, f'0{num_bits}b')
-    mecanismo_grupo1 = [dims_ncubos[i] for i in range(num_bits) if bits_ini[i] == bits_comp[i]]
-    mecanismo_grupo2 = [dims_ncubos[i] for i in range(num_bits)]
-    if grupo1 and not grupo2:
-        return (grupo2, grupo1, mecanismo_grupo2, mecanismo_grupo1)
-    else:
-        return (grupo1, grupo2, mecanismo_grupo1, mecanismo_grupo2)
-
 def _evaluar_biparticion_worker(args):
     A, B, a, b, sia_subsistema, sia_dists_marginales = args
     particion = sia_subsistema.bipartir(np.array(A), np.array(a))
@@ -91,7 +99,7 @@ def _evaluar_biparticion_worker(args):
     costo = emd_efecto(dist, sia_dists_marginales)
     return costo, dist, (A, B, a, b)
 
-class GeometricSIAP(SIA):
+class GeometricSIA_CUDA(SIA):
     def __init__(self, gestor):
         super().__init__(gestor)
         self.tensores = {}
@@ -111,8 +119,24 @@ class GeometricSIAP(SIA):
 
         #tiempo_inicio = time.time()
         #print("Calculando tabla de costos...")
-        self.tabla_transiciones = self.calcular_tabla_costos()
+        self.tabla_transiciones = self.calcular_tabla_costos_cuda()
         #print(f"Tiempo de cálculo de tabla de costos: {time.time() - tiempo_inicio:.8f} segundos")
+        
+        try:
+            cuda.synchronize()
+            # Liberar memoria CUDA
+            cuda.current_context().deallocations.clear()
+            cuda.current_context().reset()
+            # Cerrar contexto CUDA
+            if cuda.is_available():
+                cuda.close()
+        except cuda.CudaSupportError:
+            print("Error al liberar memoria CUDA. Puede que no se haya inicializado correctamente.")
+        
+        # Limpiar referencias CUDA del objeto
+        if hasattr(self, 'tensores'):
+            del self.tensores  # Ya no los necesitamos
+        gc.collect()
 
         # tiempo_inicio = time.time()
         # print("Guardando tablas de costos en Excel...")
@@ -125,7 +149,6 @@ class GeometricSIAP(SIA):
         candidatos = self.identificar_biparticiones_candidatas_extra(candidatos)
         candidatos = self.filtrar_candidatos_por_tamano(candidatos) 
         #print(f"Tiempo de identificación de candidatas: {time.time() - tiempo_inicio:.8f} segundos")
-
 
         #tiempo_inicio = time.time()
         #print("Evaluando biparticiones...")
@@ -163,24 +186,54 @@ class GeometricSIAP(SIA):
         """Convierte una lista de bits (orden big endian) a entero."""
         return int(''.join(str(b) for b in bits), 2)
 
-    def calcular_tabla_costos(self):
-        if not self.tensores:
-            return {}
+    def calcular_tabla_costos_cuda(self):
+        tablas = {}
+        num_bits = len(self.sia_subsistema.dims_ncubos)
+        num_states = 1 << num_bits
 
-        mecanismo = self.sia_subsistema.dims_ncubos
-        num_bits = len(mecanismo)
-        num_states = 2 ** num_bits
-        bits_fuente = [self.sia_subsistema.estado_inicial[i] for i in mecanismo]
-        source_state = int(''.join(str(b) for b in bits_fuente), 2)
+        bits_fuente = [self.sia_subsistema.estado_inicial[i] for i in self.sia_subsistema.dims_ncubos]
+        source_state = int("".join(str(b) for b in bits_fuente), 2)
 
-        tasks_args_list = []
-        for var_key in self.sia_subsistema.indices_ncubos:
-            tensor_val = self.tensores[var_key]
-            tasks_args_list.append((var_key, tensor_val.copy(), num_states, num_bits, source_state, mecanismo))
+        threads_per_block = 256
 
-        with multiprocessing.Pool() as pool:
-            resultados = pool.map(calcular_fila, tasks_args_list)
-        tablas = {var: fila for var, fila in resultados}
+        # Precalcular conjuntos de estados por distancia
+        distancias_j = [[] for _ in range(num_bits + 1)]
+        for j in range(num_states):
+            d = bin(source_state ^ j).count('1')
+            distancias_j[d].append(j)
+
+        for var, tensor_flat in self.tensores.items():
+            fila = np.zeros(num_states, dtype=np.float32)
+
+            d_tensor = cuda.to_device(tensor_flat.astype(np.float32))
+            d_fila = cuda.to_device(fila)
+
+            for d in range(1, num_bits + 1):
+                js = np.array(distancias_j[d], dtype=np.int32)
+                if js.size == 0:
+                    continue
+
+                d_js = cuda.to_device(js)
+                d_fila_prev = d_fila  # ya tiene lo anterior
+
+                blocks_per_grid = (js.size + threads_per_block - 1) // threads_per_block
+
+                calcular_costos_por_distancia_progresiva[blocks_per_grid, threads_per_block](
+                    d_tensor, source_state, d_fila, d_fila_prev, d_js, num_bits
+                )
+                cuda.synchronize()
+
+                del d_js
+
+            d_fila.copy_to_host(fila)
+            tablas[var] = fila
+
+            del d_tensor
+            del d_fila
+
+        cuda.current_context().memory_manager.deallocations.clear()
+        gc.collect()
+
         return tablas
 
     def guardar_tabla_costos_excel(self):
@@ -225,7 +278,7 @@ class GeometricSIAP(SIA):
             
         print(f"Tabla de costos guardada en {file_path}")
     
-    def identificar_biparticiones_candidatas(self):
+    def identificar_biparticiones_candidatas2(self):
         if not self.tabla_transiciones:
             return []
 
@@ -241,7 +294,7 @@ class GeometricSIAP(SIA):
             for var in indices_ncubos
         ]
 
-        with multiprocessing.Pool() as pool:
+        with multiprocessing.Pool(6) as pool:
             resultados = pool.map(_biparticion_candidata_worker, args_list)
 
         candidatas = []
@@ -262,11 +315,93 @@ class GeometricSIAP(SIA):
         # print(f"Se encontraron {len(candidatas_unicas)} biparticiones candidatas.")
         return candidatas_unicas
 
+    def identificar_biparticiones_candidatas(self):
+        if not self.tabla_transiciones:
+            return []
+
+        first_key = next(iter(self.tabla_transiciones))
+        num_states = len(self.tabla_transiciones[first_key])
+        num_bits = (num_states - 1).bit_length()
+        mecanismo = self.sia_subsistema.dims_ncubos
+        bits_fuente = [self.sia_subsistema.estado_inicial[i] for i in mecanismo]
+        
+        estado_inicial = self.bits_to_int(bits_fuente)
+
+        candidatas = []
+        #print(f"Identificando biparticiones candidatas para {len(self.sia_subsistema.indices_ncubos)} variables y {num_states} estados...")
+
+        for var in self.sia_subsistema.indices_ncubos:
+            fila = self.tabla_transiciones[var]
+            min_costo = np.min([fila[j] for j in range(num_states) if j != estado_inicial])
+            estados_min = [j for j in range(num_states) if j != estado_inicial and fila[j] == min_costo]
+            
+            #print(f"Variable {var} tiene mínimo costo {min_costo:.8f} en estados: {', '.join(format(e, f'0{num_bits}b') for e in estados_min)}")
+            
+            
+            for estado in estados_min:
+                grupo1 = [var]
+                grupo2 = []
+                estado_inverso = estado ^ ((1 << num_bits) - 1)
+                # Para cada otra variable, ver en qué transición tiene su menor costo
+                #print(f"Evaluando estado {estado} ({format(estado, f'0{num_bits}b')}) con mínimo costo {min_costo:.8f} en variable {var}")
+                for otra_var in self.sia_subsistema.indices_ncubos:
+                    if otra_var == var:
+                        continue
+                    fila_otra = self.tabla_transiciones[otra_var]
+                    costo_estado = fila_otra[estado]
+                    costo_inverso = fila_otra[estado_inverso]
+                
+                    if costo_estado < costo_inverso:
+                        grupo1.append(otra_var)
+                    elif costo_inverso < costo_estado:
+                        grupo2.append(otra_var)
+                    else:
+                        grupo1.append(otra_var)
+
+                bits_ini = format(estado_inicial, f'0{num_bits}b')
+                bits_estado = format(estado, f'0{num_bits}b')
+                bits_inverso = format(estado_inverso, f'0{num_bits}b')
+                # print(f"Estado Inicial: {bits_ini}")
+                # print(f"Estado Final  : {bits_estado}")
+                # print(f"Estado Inverso: {bits_inverso}")
+
+                # Mecanismo grupo 1: TODAS las variables que NO cambian en la transición estado_inicial -> estado
+                mecanismo_grupo1 = [self.sia_subsistema.dims_ncubos[i] for i in range(num_bits) if bits_ini[i] == bits_estado[i]]
+                # Mecanismo grupo 2: TODAS las variables que NO cambian en la transición estado_inicial -> estado_inverso
+                mecanismo_grupo2 = [self.sia_subsistema.dims_ncubos[i] for i in range(num_bits) if bits_ini[i] == bits_inverso[i]]
+                
+                #print(f"Grupo 1: {grupo1} con mecanismos {mecanismo_grupo1}")
+                #print(f"Grupo 2: {grupo2} con mecanismos {mecanismo_grupo2}")
+
+                # Solo considerar biparticiones no triviales
+                if grupo1 and not grupo2:
+                    candidatas.append((grupo2, grupo1, mecanismo_grupo2, mecanismo_grupo1))
+                else:
+                    candidatas.append((grupo1, grupo2, mecanismo_grupo1, mecanismo_grupo2))
+                    
+                #print(f"Encontrada bipartición: {grupo1} | {grupo2} con mecanismos {mecanismo_grupo1} | {mecanismo_grupo2}")
+            
+        
+        # Elimina duplicados (considerando que (A,B) y (B,A) son iguales)
+        candidatas_unicas = []
+        claves_vistas = set()
+        for c in candidatas:
+            grupoA, grupoB, mecA, mecB = map(frozenset, c)
+            clave = (grupoA, grupoB, mecA, mecB)
+            clave_inv = (grupoB, grupoA, mecB, mecA)
+            if clave not in claves_vistas and clave_inv not in claves_vistas:
+                candidatas_unicas.append(c)
+                claves_vistas.add(clave)
+                claves_vistas.add(clave_inv)
+                #print(f"Encontrada bipartición única: {c}")
+
+        #print(f"Se encontraron {len(candidatas_unicas)} biparticiones candidatas.")
+        return candidatas_unicas
+    
     def identificar_biparticiones_candidatas_extra(self, candidatos):
         if not self.tabla_transiciones:
             return candidatos
 
-        indices_ncubos = self.sia_subsistema.indices_ncubos
         first_key = next(iter(self.tabla_transiciones))
         num_states = len(self.tabla_transiciones[first_key])
         num_bits = (num_states - 1).bit_length()
@@ -280,40 +415,41 @@ class GeometricSIAP(SIA):
         
         # Buscar variables con costo mínimo en el estado complementario
         costos_complementarios = [self.tabla_transiciones[var][estado_complementario] for var in self.sia_subsistema.indices_ncubos]
-        
+
         max_costo = max(costos_complementarios)
         umbral = ANALYSIS_PERCENTAGE * max_costo
         vars_min = [var for var, costo in zip(self.sia_subsistema.indices_ncubos, costos_complementarios) if costo <= umbral]
         # print(f"Variables con costo mínimo {min_costo:.8f} en estado complementario {estado_complementario} ({format(estado_complementario, f'0{num_bits}b')}): {vars_min}")
 
-        #print(vars_min)
+        # print(vars_min)
 
-        args_list = [
-            (var, self.tabla_transiciones, num_bits, estado_inicial, estado_complementario, indices_ncubos, mecanismo)
-            for var in vars_min
-        ]
+        for var in vars_min:
+            grupo1 = [var]
+            grupo2 = [v for v in self.sia_subsistema.indices_ncubos if v != var]
+            
+            # print(f"Evaluando variable {var} con costo mínimo {min_costo:.8f} en estado complementario {estado_complementario} ({format(estado_complementario, f'0{num_bits}b')})")
 
-        with multiprocessing.Pool() as pool:
-            resultados = pool.map(_biparticion_extra_worker, args_list)
+            bits_ini = format(estado_inicial, f'0{num_bits}b')
+            bits_comp = format(estado_complementario, f'0{num_bits}b')
 
-        for c in resultados:
-            if c is not None:
-                candidatos.append(c)
-                #print(f"Biparticion extra agregada {candidatos[-1]}") 
+            # Mecanismo grupo 1: TODAS las variables que NO cambian en la transición estado_inicial -> estado_inverso
+            mecanismo_grupo1 = [self.sia_subsistema.dims_ncubos[i] for i in range(num_bits) if bits_ini[i] == bits_comp[i]]
+            # Mecanismo grupo 2: TODAS las variables que NO cambian en la transición estado_inicial -> estado_inicial
+            mecanismo_grupo2 = [self.sia_subsistema.dims_ncubos[i] for i in range(num_bits)]
 
+            # Solo considerar biparticiones no triviales
+            if grupo1 and not grupo2:
+                candidatos.append((grupo2, grupo1, mecanismo_grupo2, mecanismo_grupo1))
+            else:
+                candidatos.append((grupo1, grupo2, mecanismo_grupo1, mecanismo_grupo2))
+                
+            # print(f"Biparticion extra agregada {candidatos[-1]}") 
+            # print(f"Encontrada bipartición extra: {grupo1} | {grupo2} con mecanismos {mecanismo_grupo1} | {mecanismo_grupo2}")
+            
         # Elimina duplicados (considerando que (A,B) y (B,A) son iguales)
-        candidatas_unicas = []
-        claves_vistas = set()
-        for c in candidatos:
-            grupoA, grupoB, mecA, mecB = map(frozenset, c)
-            clave = (grupoA, grupoB, mecA, mecB)
-            clave_inv = (grupoB, grupoA, mecB, mecA)
-            if clave not in claves_vistas and clave_inv not in claves_vistas:
-                candidatas_unicas.append(c)
-                claves_vistas.add(clave)
-                claves_vistas.add(clave_inv)
-        #print(f"Se encontraron {len(candidatas_unicas)} biparticiones candidatas (incluyendo extra).")
-        return candidatas_unicas
+        
+        # print(f"Se encontraron {len(candidatos)} biparticiones candidatas (incluyendo extra).")
+        return candidatos
     
     def filtrar_candidatos_por_tamano(self, candidatos):
         if not candidatos:
