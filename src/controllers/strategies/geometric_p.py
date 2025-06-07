@@ -16,7 +16,7 @@ from src.constants.base import (TYPE_TAG)
 
 
 MAX_VAR = -1                    # Número máximo de variables a considerar en la evaluación de biparticiones
-ANALYSIS_PERCENTAGE = 0.5       # Porcentaje de costo máximo para considerar una variable como candidata extra
+ANALYSIS_PERCENTAGE = 0.75       # Porcentaje de costo máximo para considerar una variable como candidata extra
 
 def hamming_distance(s1, s2):
     """Calcula la distancia de Hamming entre dos estados enteros."""
@@ -283,7 +283,7 @@ class GeometricSIAP(SIA):
         
         max_costo = max(costos_complementarios)
         umbral = ANALYSIS_PERCENTAGE * max_costo
-        vars_min = [var for var, costo in zip(self.sia_subsistema.indices_ncubos, costos_complementarios) if costo < umbral]
+        vars_min = [var for var, costo in zip(self.sia_subsistema.indices_ncubos, costos_complementarios) if costo <= umbral]
         # print(f"Variables con costo mínimo {min_costo:.8f} en estado complementario {estado_complementario} ({format(estado_complementario, f'0{num_bits}b')}): {vars_min}")
 
         #print(vars_min)

@@ -15,12 +15,12 @@ def main():
     
     # ESTRATEGIA = PHI, GEO, GEOP
     # ALCANCE =  "12345678901234567890"
-    iniciar_lote("111111111111111", "PHI")
+    iniciar_lote("11111111111111111110", "GEO")
 
 if __name__ == "__main__":
     main()
 
-# 111111111111111111111  Primera secuencia
+    # 111111111111111111111  Primera secuencia
     # 111111111111111111110  Segunda secuencia
     # 011111111111111111111  Tercera secuencia
     # 011111111111111111110  Cuarta secuencia

@@ -16,15 +16,15 @@ import gc
 def iniciar():
     """Punto de entrada principal"""
                     # 123456789012345678901234567890 #
-    estado_inicial = "100"
-    condiciones =    "111"
-    alcance =        "111"
-    mecanismo =      "111"
+    estado_inicial = "100000000000000"
+    condiciones =    "111111111111111"
+    alcance =        "110110110110110"
+    mecanismo =      "110110110110110"
 
     gestor_sistema = Manager(estado_inicial)
 
     ### Ejemplo de solución mediante módulo de fuerza bruta ###
-    analizador_fb = Phi(gestor_sistema)
+    analizador_fb = GeometricSIA(gestor_sistema)
     sia_uno = analizador_fb.aplicar_estrategia(
         condiciones,
         alcance,
@@ -114,6 +114,8 @@ def iniciar_lote(alcance, strategy):
         
         if strategy == "PHI":
             analizador = Phi(config_sistema)
+        elif strategy == "QNO":
+            analizador = QNodes(config_sistema)
         elif strategy == "GEO":
             analizador = GeometricSIA(config_sistema)
         elif strategy == "GEOP":
