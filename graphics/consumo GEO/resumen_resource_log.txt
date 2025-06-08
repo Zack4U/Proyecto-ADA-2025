@@ -1,0 +1,6 @@
+--- Tabla Resumen del Uso de Recursos ---
+                    Mínimo  Promedio  Máximo
+CPU_Percent           8.30     18.92   48.60
+Memory_Percent       57.10     64.06   74.80
+GPU_Percent           0.00      1.96   10.00
+GPU_Memory_Percent   48.81     49.61   50.80
