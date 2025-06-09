@@ -13,7 +13,7 @@ from src.funcs.format import fmt_biparticion
 
 from src.middlewares.profile import profile
 
-from src.constants.models import (GEOMETRIC_PARALLEL_LABEL, GEOMETRIC_PARALLEL_ANALYSIS_TAG)
+from src.constants.models import (GEOMETRIC_CUDA_LABEL, GEOMETRIC_CUDA_ANALYSIS_TAG)
 from src.constants.base import (TYPE_TAG)
 
 
@@ -72,35 +72,35 @@ class GeometricSIA_CUDA(SIA):
         self.tensores = {}
         self.tabla_transiciones = {}
 
-    # @profile(context={TYPE_TAG: GEOMETRIC_PARALLEL_ANALYSIS_TAG})
+    # @profile(context={TYPE_TAG: GEOMETRIC_CUDA_ANALYSIS_TAG})
     def aplicar_estrategia(self, condicion: str, alcance: str, mecanismo: str) -> Solution:
-        #print("Iniciando SIA Geométrica...")
-        #tiempo_inicio = time.time()
+        print("Iniciando SIA Geométrica...")
+        tiempo_inicio = time.time()
         self.sia_preparar_subsistema(condicion, alcance, mecanismo)
-        #print(f"Tiempo de preparación del subsistema: {time.time() - tiempo_inicio:.8f} segundos")
+        print(f"Tiempo de preparación del subsistema: {time.time() - tiempo_inicio:.8f} segundos")
 
-        #tiempo_inicio = time.time()
-        #print("Descomponiendo en tensores...")
+        tiempo_inicio = time.time()
+        print("Descomponiendo en tensores...")
         self.tensores = self.descomponer_en_tensores()
-        #print(f"Tiempo de descomposición: {time.time() - tiempo_inicio:.8f} segundos")
+        print(f"Tiempo de descomposición: {time.time() - tiempo_inicio:.8f} segundos")
 
-        #tiempo_inicio = time.time()
-        #print("Calculando tabla de costos...")
+        tiempo_inicio = time.time()
+        print("Calculando tabla de costos...")
         self.tabla_transiciones = self.calcular_tabla_costos_cuda()
-        #print(f"Tiempo de cálculo de tabla de costos: {time.time() - tiempo_inicio:.8f} segundos")
+        print(f"Tiempo de cálculo de tabla de costos: {time.time() - tiempo_inicio:.8f} segundos")
         
         try:
             cuda.synchronize()
-            # Liberar memoria CUDA
+            #Liberar memoria CUDA
             cuda.current_context().deallocations.clear()
             cuda.current_context().reset()
-            # Cerrar contexto CUDA
+            #Cerrar contexto CUDA
             if cuda.is_available():
                 cuda.close()
         except cuda.CudaSupportError:
             print("Error al liberar memoria CUDA. Puede que no se haya inicializado correctamente.")
         
-        # Limpiar referencias CUDA del objeto
+        #Limpiar referencias CUDA del objeto
         if hasattr(self, 'tensores'):
             del self.tensores  # Ya no los necesitamos
         gc.collect()
@@ -110,24 +110,24 @@ class GeometricSIA_CUDA(SIA):
         # self.guardar_tabla_costos_excel() 
         # print(f"Tiempo de guardado de tablas: {time.time() - tiempo_inicio:.8f} segundos")
         
-        #tiempo_inicio = time.time()
-        #print("Identificando biparticiones candidatas...")
+        tiempo_inicio = time.time()
+        print("Identificando biparticiones candidatas...")
         candidatos = self.identificar_biparticiones_candidatas()
         candidatos = self.identificar_biparticiones_candidatas_extra(candidatos)
         candidatos = self.filtrar_candidatos_por_tamano(candidatos) 
-        #print(f"Tiempo de identificación de candidatas: {time.time() - tiempo_inicio:.8f} segundos")
+        print(f"Tiempo de identificación de candidatas: {time.time() - tiempo_inicio:.8f} segundos")
 
-        #tiempo_inicio = time.time()
-        #print("Evaluando biparticiones...")
+        tiempo_inicio = time.time()
+        print("Evaluando biparticiones...")
         mejor, mejor_dist, mejor_cost = self.evaluar_biparticiones(candidatos)
-        #print(f"Tiempo de evaluación de biparticiones: {time.time() - tiempo_inicio:.8f} segundos")
+        print(f"Tiempo de evaluación de biparticiones: {time.time() - tiempo_inicio:.8f} segundos")
         
         #print("Obteniendo particion final...")
         #print(f"Mejor partición: {mejor} con costo {mejor_cost}")
         
 
         return Solution(
-            estrategia=GEOMETRIC_PARALLEL_LABEL,
+            estrategia=GEOMETRIC_CUDA_LABEL,
             perdida=mejor_cost,
             distribucion_subsistema=self.sia_dists_marginales,
             distribucion_particion=mejor_dist,
