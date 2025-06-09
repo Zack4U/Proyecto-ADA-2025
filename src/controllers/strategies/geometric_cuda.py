@@ -24,6 +24,39 @@ def hamming_distance(s1, s2):
     """Calcula la distancia de Hamming entre dos estados enteros."""
     return bin(s1 ^ s2).count('1')
 
+def _biparticion_candidata_worker(args):
+    var, tabla_transiciones, num_bits, num_states, estado_inicial, indices_ncubos, dims_ncubos = args
+    fila = tabla_transiciones[var]
+    min_costo = np.min([fila[j] for j in range(num_states) if j != estado_inicial])
+    estados_min = [j for j in range(num_states) if j != estado_inicial and fila[j] == min_costo]
+    candidatas = []
+    for estado in estados_min:
+        grupo1 = [var]
+        grupo2 = []
+        estado_inverso = estado ^ ((1 << num_bits) - 1)
+        for otra_var in indices_ncubos:
+            if otra_var == var:
+                continue
+            fila_otra = tabla_transiciones[otra_var]
+            costo_estado = fila_otra[estado]
+            costo_inverso = fila_otra[estado_inverso]
+            if costo_estado < costo_inverso:
+                grupo1.append(otra_var)
+            elif costo_inverso < costo_estado:
+                grupo2.append(otra_var)
+            else:
+                grupo1.append(otra_var)
+        bits_ini = format(estado_inicial, f'0{num_bits}b')
+        bits_estado = format(estado, f'0{num_bits}b')
+        bits_inverso = format(estado_inverso, f'0{num_bits}b')
+        mecanismo_grupo1 = [dims_ncubos[i] for i in range(num_bits) if bits_ini[i] == bits_estado[i]]
+        mecanismo_grupo2 = [dims_ncubos[i] for i in range(num_bits) if bits_ini[i] == bits_inverso[i]]
+        if grupo1 and not grupo2:
+            candidatas.append((grupo2, grupo1, mecanismo_grupo2, mecanismo_grupo1))
+        else:
+            candidatas.append((grupo1, grupo2, mecanismo_grupo1, mecanismo_grupo2))
+    return candidatas
+
 @cuda.jit
 def calcular_costos_por_distancia_progresiva(tensor, source_state, fila, fila_prev, js, num_bits):
     idx = cuda.grid(1)
@@ -328,6 +361,43 @@ class GeometricSIA_CUDA(SIA):
         #print(f"Se encontraron {len(candidatas_unicas)} biparticiones candidatas.")
         return candidatas_unicas
     
+    def identificar_biparticiones_candidatas_paralelo(self):
+        if not self.tabla_transiciones:
+            return []
+
+        mecanismo = self.sia_subsistema.dims_ncubos
+        indices_ncubos = self.sia_subsistema.indices_ncubos
+        num_bits = len(mecanismo)
+        num_states = 2 ** num_bits
+        bits_fuente = [self.sia_subsistema.estado_inicial[i] for i in mecanismo]
+        estado_inicial = int(''.join(str(b) for b in bits_fuente), 2)
+
+        args_list = [
+            (var, self.tabla_transiciones, num_bits, num_states, estado_inicial, indices_ncubos, mecanismo)
+            for var in indices_ncubos
+        ]
+
+        with multiprocessing.Pool(10) as pool:
+            resultados = pool.map(_biparticion_candidata_worker, args_list)
+
+        candidatas = []
+        for sublist in resultados:
+            candidatas.extend(sublist)
+
+        # Elimina duplicados (considerando que (A,B) y (B,A) son iguales)
+        candidatas_unicas = []
+        claves_vistas = set()
+        for c in candidatas:
+            grupoA, grupoB, mecA, mecB = map(frozenset, c)
+            clave = (grupoA, grupoB, mecA, mecB)
+            clave_inv = (grupoB, grupoA, mecB, mecA)
+            if clave not in claves_vistas and clave_inv not in claves_vistas:
+                candidatas_unicas.append(c)
+                claves_vistas.add(clave)
+                claves_vistas.add(clave_inv)
+        # print(f"Se encontraron {len(candidatas_unicas)} biparticiones candidatas.")
+        return candidatas_unicas
+
     def identificar_biparticiones_candidatas_extra(self, candidatos):
         if not self.tabla_transiciones:
             return candidatos
@@ -401,7 +471,7 @@ class GeometricSIA_CUDA(SIA):
         # print(f"Filtrando candidatos: tamaño mínimo {min_size}, máximo {max_size}, umbral {umbral}. Quedan {len(filtrados)} de {len(candidatos)}.")
         return filtrados  
     
-    def evaluar_biparticiones(self, candidatos):
+    def evaluar_biparticiones_paralelo(self, candidatos):
         mejor = None
         mejor_costo = float('inf')
         mejor_dist = None
@@ -423,3 +493,32 @@ class GeometricSIA_CUDA(SIA):
 
         return mejor, mejor_dist, mejor_costo
     
+    def evaluar_biparticiones(self, candidatos):
+        mejor = None
+        mejor_costo = float('inf')
+        mejor_dist = None
+        memoria_particiones = {}
+
+        for A, B, a, b in candidatos:
+            clave = (frozenset(A), frozenset(a))
+            if clave in memoria_particiones:
+                # print(f"Usando memoria para clave {clave}")
+                costo, dist = memoria_particiones[clave]
+            else:
+                costo, dist = self.evaluar_coste_biparticion(A, a)
+                memoria_particiones[clave] = (costo, dist)
+
+            if costo < mejor_costo:
+                mejor = (A, B, a, b)
+                mejor_costo = costo
+                mejor_dist = dist
+
+        return mejor, mejor_dist, mejor_costo
+    
+    def evaluar_coste_biparticion(self, futuro_A, presente_a):  
+        particion = self.sia_subsistema.bipartir(np.array(futuro_A), np.array(presente_a))
+        dist = particion.distribucion_marginal()
+
+        costo = emd_efecto(dist, self.sia_dists_marginales)
+        
+        return costo, dist

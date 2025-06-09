@@ -10,14 +10,14 @@ def main():
     aplicacion.pagina_sample_network = "A"
     
     
-    # iniciar()
+    iniciar()
     # matriz_generator()
 
     # ESTRATEGIA = PHI, QNO, GEO, GEOMP, GEOCUDA
     # ALCANCE =  "123456789012345678901"
     # iniciar_lote("011111111111111111111", "GEOCUDA")
-    # ALCANCE = "123456789012345678901"  "123456789012345678901"
-    iniciar_uno("11111111111111111111", "11111111111111111111", "GEO")
+    # ALCANCE = "1234567890123456789012345"  "1234567890123456789012345"
+    # iniciar_uno("111111111111111111111111" , "111111111111111111111111"   , "GEOCUDA")
 
 if __name__ == "__main__":
     main()
